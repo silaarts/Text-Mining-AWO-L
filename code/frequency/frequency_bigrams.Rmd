@@ -1,0 +1,144 @@
+---
+title: "RvZ_frequency"
+author: "Sil Aarts"
+date: "11/5/2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+always_allow_html: yes
+---
+
+```{r echo=F, warning=F, message=F}
+#Load libraries
+library(tidyverse)
+library(readr)
+library(tidyr)
+library(tidytext)
+library(stopwords)
+library(quanteda)
+library(tm)
+library(plyr)
+library(wesanderson)
+library(syuzhet)
+library(viridis)
+library(plyr)
+library(stringi)
+library(kableExtra)
+library(NLP)
+library(SnowballC)
+```
+
+```{r echo=F, warning=F, message=F}
+#load all files out of a folder
+directory <- "./survey/data"
+filenames <- list.files(directory, pattern = "*.csv", full.names = T)
+#Attach original file name to see from which interview the text is
+names(filenames) <- basename(filenames)
+files <- ldply(filenames, read.csv, header=F, stringsAsFactors = F)
+file_ready <- as.data.frame(files)
+
+#Select only two columns.
+data1 <- file_ready %>%
+  select(1:2)
+
+#Change colnames
+colnames(data1) <- c("file","woord")
+```
+
+
+```{r, echo=F, message=F, warning=F}
+#Bigrams
+#Every vector, two words, adjacent
+data2 <- data1 %>%
+  unnest_tokens(word, woord,token = "ngrams", n = 2)
+
+#Make two columns: one per word
+data3 <- data2 %>%
+  separate(word, c("word1", "word2"), sep = " ") %>%
+  filter(is.na(as.numeric(word1, word2)))%>%
+  filter(is.na(as.numeric(word1, word2)))
+
+#Filter out stopwords
+# TODO replace with curated stop words list from transcripts
+data4 <- data3 %>%
+  filter(!word1 %in% stopwords("dutch"),
+         !word2 %in% stopwords("dutch")) %>%
+  dplyr::count(word1, word2, sort = TRUE)
+
+#Back to one column=word
+freq_allgroups <- data4 %>%
+  unite("words", c(word1, word2), sep = " ")
+
+```
+
+```{r, echo=F, warning=F, message=F}
+#Frequency plots per group
+#Make 3 groups: strsplit & substr
+data5  <- data3 %>%
+  separate(file, c("number_1", "number_2"), "-")
+#Select last character for groups: 56.367
+data5 <- data5 %>%
+  mutate(group= substr(number_1, nchar(number_1), nchar(number_1)))
+
+#Clean up!
+#Delete empty groups if present (not present when csv files are altered name-name)
+data6 <- data5[!(data5$group == " "), ]
+#Make all letters similar so 3 groups will consists
+data6$group[data6$group=="b"] <- "B"
+data6$group[data6$group=="f"] <- "F"
+data6$group[data6$group=="z"] <- "Z"
+#Check it: only 3 groups left: B, F & Z
+check <- unique(data6$group)
+
+#Filter out stopwords
+data7 <- data6 %>%
+  filter(!word1 %in% stopwords("dutch"),
+         !word2 %in% stopwords("dutch")) %>%
+   group_by(group)%>%
+  dplyr::count(word1, word2, sort = TRUE)
+
+#Back to one column=word: 144.402
+data8 <- data7 %>%
+  unite("word", c(word1, word2), sep = " ")
+
+#Files per group B: 3910
+data_B <- data8 %>%
+  filter(group=="B")
+
+#Files per group F: 5938
+data_F <- data8 %>%
+  filter(group=="F")
+
+#Files per group Z: 5586
+data_Z <- data8 %>%
+  filter(group=="Z")
+```
+
+
+```{r, echo=F, warning=F, message=F, fig.height = 10, fig.width = 10, fig.cap = "First n = 50 most frequently occurring bigram across all interviews", out.width = "100%"}
+#For all interviews
+#Make some colors for the bars
+colours <- '#aaaaaa'
+
+# # select first 20 unigrams
+freq_allgroups <- freq_allgroups[1:53,]
+
+#GGPlot: bar
+freq_allgroups %>%
+  filter (words != "NA NA" & words != "naam bewoner" & words != "mevrouw naambewoner" & words != "naam plaats") %>%
+  ggplot(aes(x = reorder(words,n), y = n)) +
+  geom_bar(stat = "identity", fill=colours)+
+  xlab("")+ ylab("")+labs(caption="")+
+  theme_minimal(10) +
+  theme(legend.position = "none",
+        text=element_text(family="Times"),
+        plot.title=element_text(size=12, hjust=0),
+        axis.text.x = element_text(size=12),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.ticks.y = element_blank())+
+  coord_flip()
+
+```

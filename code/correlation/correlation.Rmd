@@ -1,0 +1,216 @@
+---
+title: "RvZ_Correlation"
+author: "Sil Aarts"
+date: "11/5/2019"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r echo=F, message=F}
+library(tidyverse)
+library(readr)
+library(tidyr)
+library(tidytext)
+library(stopwords)
+library(quanteda)
+library(tm)
+library(syuzhet)
+library(viridis)
+library(plyr)
+library(stringi)
+library(scales)
+library(patchwork)
+```
+
+
+```{r echo=F, warning=F, message=F}
+#Load all files from the folder
+directory <- "./survey/data"
+filenames <- list.files(directory, pattern = "*.csv", full.names = T)
+#Attach original file name to see from which interview the text is
+names(filenames) <- basename(filenames)
+files <- ldply(filenames, read.csv, header=F, stringsAsFactors = F)
+file_ready <- as.data.frame(files)
+
+#Csv files not correct (Audrey checkt files) for now: focus column 1.
+data1 <- file_ready %>%
+  select(1:2)
+
+#Change colnames
+colnames(data1) <- c("file","woord")
+
+#Every vector, two words, adjacent
+data2 <- data1 %>%
+  unnest_tokens(word, woord,token = "ngrams", n = 1)
+
+#Remove numbers
+data3 <- data2  %>%
+  filter(is.na(as.numeric(word)))
+#Remove vector with one charactor
+data3 <- data3 %>%
+  filter(nchar(word) > 1)
+
+#Delete stopwords
+data3 <- data2 %>%
+  filter(!word %in% stopwords("dutch"))%>%
+  filter(is.na(as.numeric(word)))
+
+#Check list stopwords
+stopwords <- as.data.frame(stopwords("Dutch"))
+
+#Make 3 groups:strsplit & str_sub
+data4  <- data3 %>%
+  separate(file, c("number_1", "number_2"), "-")
+#Check the number
+unique <- data4[!duplicated(data4$number),]
+
+#Select last charactor for groups: 57.111
+data5 <- data4 %>%
+  mutate(group= substr(number_1, nchar(number_1), nchar(number_1)))
+#Clean up!
+#Delete empty group
+data6 <- data5[!(data5$group == " "), ]
+#Make all letters similar
+data6$group[data6$group=="b"] <- "B"
+data6$group[data6$group=="f"] <- "F"
+data6$group[data6$group=="z"] <- "Z"
+#Check it: only 3 groups left: B, F & Z
+check <- unique(data6$group)
+#Finale file: 56.585
+data7 <- data6 %>%
+  select(3:4)
+#Files per group: 14040, 21873, 20672
+data_B <- data7 %>%
+  filter(group=="B")
+data_F <- data7 %>%
+  filter(group=="F")
+data_Z <- data7 %>%
+  filter(group=="Z")
+
+#Get frequencies per woord per group
+data8 <- data7 %>%
+  group_by(group) %>%
+  dplyr::count(word, sort=T)%>%
+  #Add column total (to the left > left join)
+  left_join(data7 %>%
+              group_by(group)%>%
+              dplyr::summarise(total=n())) %>%
+  #Add colum frequencies
+  mutate(freq = n/total)
+
+#Re-shape data_indexqual.frame: to frequency per word per group.
+frequency <- data8 %>%
+  dplyr::select(group, word, freq)%>%
+  tidyr::spread(group, freq)%>%
+  arrange(B,F,Z)
+```
+```{r echo=F, warning=F, message=F}
+dist_percentBF <- 5 # at least 5X difference
+dist_percentBZ <- 5 # at least 5X difference
+dist_percentZF <- 4 # at least 4X difference
+
+# filter words to show only the most important labels
+word_labelsBF <- frequency %>% filter(B / F > dist_percentBF | F / B > dist_percentBF)
+word_labelsBZ <- frequency %>% filter(B / Z > dist_percentBZ | Z / B > dist_percentBZ)
+word_labelsZF <- frequency %>% filter(Z / F > dist_percentZF | F / Z > dist_percentZF)
+
+# filter words to limit the view domain
+freq_BF <- frequency %>% filter(B < 0.0042 & F < 0.0042)
+freq_BZ <- frequency %>% filter(B < 0.0042 & Z < 0.0042)
+freq_ZF <- frequency %>% filter(Z < 0.0042 & F < 0.0042)
+```
+
+```{r fig.height = 21, fig.width = 15, warning=F, echo=F, message=F, dpi = 300, out.width = "100%"}
+#Make some colours
+colours <- plasma(76)
+
+#Use log10 scale for correlation, to get the plots right (instead of 0-1 correlation)
+#GGPlot: BF
+
+p_bf <- ggplot(word_labelsBF, aes(B, F)) +
+  geom_text(size=6, family="Times", data=word_labelsZF, aes(label=word), check_overlap=T, vjust=1, colour="black")+
+  geom_jitter(size=1, alpha=0.5, data=freq_BF, check_overlap=T)+
+  scale_x_log10(labels=percent_format())+
+  scale_y_log10(labels=percent_format())+
+  geom_abline(colour= "red")+
+  labs(
+        caption = "(a)",
+        x = "Residents",
+        y = "Family members",
+        #title="Correlation in words: relation between residents and family members (r=0.91)",
+        subtitle="") +
+  theme_bw() +
+  theme(legend.position = "none",
+    text=element_text(size=15, family="Times"),
+    plot.caption = element_text(hjust = 0.5, size = 20),
+    axis.title.x = element_text(size=20),
+    axis.title.y = element_text(size=20),
+    axis.text.x = element_text(size=20),
+    axis.text.y = element_text(size=20),
+    axis.ticks.y = element_blank()) +
+  coord_flip()
+
+#GGplot: BZ
+p_bz  <- ggplot(word_labelsZF, aes(B, Z)) +
+  geom_text(size=6, family="Times", data=word_labelsZF, aes(label=word), check_overlap=T, vjust=1, colour="black")+
+  geom_jitter(size=1, alpha=0.5, data=freq_BZ, check_overlap=T)+
+  scale_x_log10(labels=percent_format())+
+  scale_y_log10(labels=percent_format())+
+  geom_abline(colour= "red")+
+  labs(
+    caption = "(b)",
+    x = "Residents",
+    y = "Care professionals",
+    #title="Correlation in words between residents and care professionals (r=0.83)",
+    subtitle="") +
+  theme_bw() +
+  theme(legend.position = "none",
+    text=element_text(size=15, family="Times"),
+    plot.caption = element_text(hjust = 0.5, size = 20),
+    axis.title.x = element_text(size=20),
+    axis.title.y = element_text(size=20),
+    axis.text.x = element_text(size=20),
+    axis.text.y = element_text(size=20),
+    axis.ticks.y = element_blank()) +
+  coord_flip()
+
+#GGPlot: ZF
+p_fz <- ggplot(word_labelsZF, aes(Z, F)) +
+  geom_text(size=6, family="Times", data=word_labelsZF, aes(label=word), check_overlap=T, vjust=1, colour="black")+
+  geom_jitter(size=1, alpha=0.5, data=freq_ZF, check_overlap=T)+
+  scale_x_log10(labels=percent_format())+
+  scale_y_log10(labels=percent_format())+
+  geom_abline(colour= "red")+
+  labs(
+    caption = "(c)",
+    x = "Care professionals",
+    y = "Family members",
+    #title="Correlation in words between care professionals and family members (r=0.92)",
+    subtitle="") +
+  theme_bw() +
+  theme(legend.position = "none",
+    text=element_text(size=15, family="Times"),
+    plot.caption = element_text(hjust = 0.5, size = 20),
+    axis.title.x = element_text(size=20),
+    axis.title.y = element_text(size=20),
+    axis.text.x = element_text(size=20),
+    axis.text.y = element_text(size=20),
+    axis.ticks.y = element_blank()) +
+  coord_flip()
+
+#Combine plots
+(p_bf + p_bz + p_fz + plot_layout(nrow=3))*
+  theme(plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"))
+```
+
+```{r echo=F, warning=F, message=F}
+#Calculate correlation
+#(cal <- cor.test(frequency$B, frequency$F, method=c("pearson")))#0.91
+#(cal <- cor.test(frequency$B, frequency$Z)) #0.83
+#(cal <- cor.test(frequency$Z, frequency$F)) #0.92
+```
+
